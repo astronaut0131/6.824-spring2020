@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 import "net"
 import "os"
@@ -26,7 +27,7 @@ type Master struct {
 	outputFileNames map[int][]string
 	// record whether map job x has finished
 	finished map[int]bool
-	nextTaskId int
+	jobIdQueue []int
 	done bool
 }
 
@@ -37,6 +38,8 @@ type Master struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
+const Timeout = 10
+
 func (m *Master) Example(args *GetInfoArgs, reply *GetInfoReply) error {
 	reply.NReduce = m.nReduce
 	return nil
@@ -51,31 +54,47 @@ func (m *Master) GetJob(args *GetJobArgs, reply *GetJobReply) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.done {
+		println("done ...")
 		reply.JobType = 3
 		return nil
 	}
 	if m.phase == 0 {
-		if m.nextTaskId == len(m.inputFileNames) {
+		if len(m.jobIdQueue) == 0 {
 			reply.JobType = 2
 			return nil
+
 		}
 		var fileNames []string
-		fileNames = append(fileNames,m.inputFileNames[m.nextTaskId])
+		front := m.jobIdQueue[0]
+		m.jobIdQueue = m.jobIdQueue[1:]
+		fileNames = append(fileNames,m.inputFileNames[front])
 		reply.FileNames = fileNames
 		reply.JobType = 0
-		reply.TaskNum = m.nextTaskId
-		m.nextTaskId += 1
+		reply.TaskNum = front
+		go Monitor(m,front)
 		return nil
 	} else {
-		if m.nextTaskId == m.nReduce {
+		if len(m.jobIdQueue) == 0 {
 			reply.JobType = 2
 			return nil
 		}
-		reply.FileNames = m.outputFileNames[m.nextTaskId]
+		front := m.jobIdQueue[0]
+		m.jobIdQueue = m.jobIdQueue[1:]
+		reply.FileNames = m.outputFileNames[front]
 		reply.JobType = 1
-		reply.TaskNum = m.nextTaskId
-		m.nextTaskId += 1
+		reply.TaskNum = front
+		go Monitor(m,front)
 		return nil
+	}
+}
+
+func Monitor(m *Master, jobId int) {
+	time.Sleep(Timeout * time.Second)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.finished[jobId] == false {
+		// worker fail to finish the job
+		m.jobIdQueue = append(m.jobIdQueue,jobId)
 	}
 }
 
@@ -93,8 +112,12 @@ func (m *Master) FinishJob(args *FinishJobArgs, reply *FinishJobReply) error {
 			m.outputFileNames[reduceTaskId] = append(m.outputFileNames[reduceTaskId],filename)
 		}
 		if len(m.finished) == len(m.inputFileNames) {
+			println("enter reduce phase")
 			m.phase = 1
-			m.nextTaskId = 0
+			m.jobIdQueue = []int{}
+			for i:= 0; i < m.nReduce; i++ {
+				m.jobIdQueue = append(m.jobIdQueue,i)
+			}
 			m.finished = make(map[int]bool)
 		}
 	} else {
@@ -146,7 +169,9 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m.inputFileNames = files
 	m.outputFileNames = make(map[int][]string)
 	m.finished = make(map[int]bool)
-	m.nextTaskId = 0
+	for i:= 0; i < len(files); i++ {
+		m.jobIdQueue = append(m.jobIdQueue,i)
+	}
 	m.done = false
 	m.server()
 	m.phase = 0

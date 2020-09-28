@@ -122,6 +122,7 @@ func SpawnWorker(mapf func(string, string) []KeyValue, reducef func(string, []st
 		} else {
 			// reduce job
 			// pass key, value list to reducef
+			println("start reducing...")
 			var kva []KeyValue
 			var output []KeyValue
 			for _,filename := range jobReply.FileNames {
