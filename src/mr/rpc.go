@@ -13,6 +13,33 @@ import "strconv"
 // example to show how to declare the arguments
 // and reply for an RPC.
 //
+type GetInfoArgs struct {
+}
+
+type GetInfoReply struct {
+	NReduce int
+}
+
+type FinishJobArgs struct {
+	FileNames []string
+	TaskNum   int
+}
+
+type FinishJobReply struct {
+}
+
+type GetJobArgs struct {
+}
+
+type GetJobReply struct {
+	FileNames []string
+	// JobType = 0 => map
+	// JobType = 1 => reduce
+	// JobType = 2 => no available job currently, should sleep for a while
+	// JobType = 3 => all jobs have been done, exit goroutine
+	JobType int
+	TaskNum int
+}
 
 type ExampleArgs struct {
 	X int
